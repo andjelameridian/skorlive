@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkorLive — Rezultati uživo</title>
+<style>
+  :root{
+    --bg:#0b0e14;
+    --panel:#11151d;
+    --panel-2:#161b25;
+    --border:#222836;
+    --text:#e8ebf0;
+    --muted:#7a8294;
+    --live:#1fd65f;
+    --accent:#ffb020;
+    --finished:#5a6275;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  }
+  header{
+    background:var(--panel);
+    border-bottom:1px solid var(--border);
+    padding:14px 20px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    position:sticky;
+    top:0;
+    z-index:10;
+  }
+  .logo{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-weight:800;
+    font-size:20px;
+    letter-spacing:-0.5px;
+  }
+  .logo .dot{
+    width:10px;height:10px;border-radius:50%;
+    background:var(--live);
+    box-shadow:0 0 0 0 rgba(31,214,95,0.6);
+    animation:pulse 1.6s infinite;
+  }
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(31,214,95,.6);}
+    70%{box-shadow:0 0 0 8px rgba(31,214,95,0);}
+    100%{box-shadow:0 0 0 0 rgba(31,214,95,0);}
+  }
+  .sport-tabs{
+    display:flex;
+    gap:6px;
+    padding:10px 20px;
+    background:var(--panel);
+    border-bottom:1px solid var(--border);
+    overflow-x:auto;
+  }
+  .tab{
+    padding:8px 16px;
+    border-radius:20px;
+    font-size:13px;
+    font-weight:600;
+    color:var(--muted);
+    background:transparent;
+    border:1px solid var(--border);
+    cursor:pointer;
+    white-space:nowrap;
+    transition:.15s;
+  }
+  .tab:hover{ color:var(--text); border-color:#3a4254;}
+  .tab.active{
+    background:var(--accent);
+    color:#1a1300;
+    border-color:var(--accent);
+  }
+  main{
+    max-width:880px;
+    margin:0 auto;
+    padding:16px;
+  }
+  .date-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:14px;
+  }
+  .date-row h2{ font-size:15px; font-weight:700; color:var(--text); margin:0;}
+  .refresh-note{ font-size:12px; color:var(--muted);}
+  .league-group{
+    margin-bottom:18px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    overflow:hidden;
+  }
+  .league-header{
+    padding:10px 14px;
+    background:var(--panel-2);
+    font-size:12px;
+    font-weight:700;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.5px;
+    border-bottom:1px solid var(--border);
+  }
+  .match-row{
+    display:grid;
+    grid-template-columns:46px 1fr 36px;
+    align-items:center;
+    padding:10px 14px;
+    border-bottom:1px solid var(--border);
+    font-size:14px;
+    gap:8px;
+  }
+  .match-row:last-child{ border-bottom:none;}
+  .match-row:hover{ background:#161c28;}
+  .status{
+    font-size:12px;
+    font-weight:700;
+    text-align:center;
+  }
+  .status.live{ color:var(--live);}
+  .status.finished{ color:var(--finished);}
+  .status.scheduled{ color:var(--muted); font-weight:500;}
+  .teams{ display:flex; flex-direction:column; gap:4px;}
+  .team-line{ display:flex; justify-content:space-between; align-items:center;}
+  .team-name{ font-weight:500;}
+  .score{ font-weight:800; font-size:15px; min-width:24px; text-align:right;}
+  .empty, .loading, .error{
+    text-align:center;
+    color:var(--muted);
+    padding:40px 10px;
+    font-size:14px;
+  }
+  .error{ color:#ff6b6b;}
+  footer{
+    text-align:center;
+    color:var(--muted);
+    font-size:12px;
+    padding:30px 10px 50px;
+  }
+  footer a{ color:var(--accent); text-decoration:none;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="dot"></span> SkorLive</div>
+  <div class="refresh-note" id="lastUpdated">Učitavanje...</div>
+</header>
+
+<div class="sport-tabs" id="sportTabs">
+  <button class="tab active" data-sport="Soccer">⚽ Fudbal</button>
+  <button class="tab" data-sport="Basketball">🏀 Košarka</button>
+  <button class="tab" data-sport="Tennis">🎾 Tenis</button>
+  <button class="tab" data-sport="Ice Hockey">🏒 Hokej</button>
+</div>
+
+<main>
+  <div class="date-row">
+    <h2 id="dateLabel">Današnji mečevi</h2>
+  </div>
+  <div id="results">
+    <div class="loading">Učitavanje rezultata...</div>
+  </div>
+</main>
+
+<footer>
+  Podaci uživo preko <a href="https://www.thesportsdb.com/" target="_blank">TheSportsDB</a> (free tier).
+  Osvežava se automatski na 60s.
+</footer>
+
+<script>
+const API_KEY = "3"; // TheSportsDB public test key (free tier)
+const tabs = document.querySelectorAll(".tab");
+let currentSport = "Soccer";
+let refreshTimer = null;
+
+function todayStr(){
+  const d = new Date();
+  return d.toISOString().slice(0,10);
+}
+
+function setLastUpdated(){
+  const now = new Date();
+  document.getElementById("lastUpdated").textContent =
+    "Ažurirano: " + now.toLocaleTimeString("sr-RS");
+}
+
+function statusClass(ev){
+  // TheSportsDB strStatus values vary; rough heuristic
+  const s = (ev.strStatus || "").toLowerCase();
+  if(s.includes("live") || s.includes("1h") || s.includes("2h") || s.includes("q") || s === "in progress") return "live";
+  if(s.includes("ft") || s.includes("finished") || s.includes("match finished")) return "finished";
+  return "scheduled";
+}
+
+function statusLabel(ev){
+  const cls = statusClass(ev);
+  if(cls === "live") return ev.strProgress ? ev.strProgress : "UŽIVO";
+  if(cls === "finished") return "KRAJ";
+  return ev.strTime ? ev.strTime.slice(0,5) : "—";
+}
+
+async function fetchMatches(sport){
+  const date = todayStr();
+  const url = `https://www.thesportsdb.com/api/v1/json/${API_KEY}/eventsday.php?d=${date}&s=${encodeURIComponent(sport)}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("API greška: " + res.status);
+  const data = await res.json();
+  return data.events || [];
+}
+
+function groupByLeague(events){
+  const groups = {};
+  events.forEach(ev=>{
+    const league = ev.strLeague || "Ostalo";
+    if(!groups[league]) groups[league] = [];
+    groups[league].push(ev);
+  });
+  return groups;
+}
+
+function render(events){
+  const container = document.getElementById("results");
+  if(!events.length){
+    container.innerHTML = `<div class="empty">Nema zakazanih ili odigranih mečeva danas za ovaj sport.</div>`;
+    return;
+  }
+  const groups = groupByLeague(events);
+  let html = "";
+  Object.keys(groups).forEach(league=>{
+    html += `<div class="league-group">
+      <div class="league-header">${league}</div>`;
+    groups[league].forEach(ev=>{
+      const cls = statusClass(ev);
+      const home = ev.strHomeTeam || "?";
+      const away = ev.strAwayTeam || "?";
+      const hs = ev.intHomeScore ?? "-";
+      const as = ev.intAwayScore ?? "-";
+      html += `
+        <div class="match-row">
+          <div class="status ${cls}">${statusLabel(ev)}</div>
+          <div class="teams">
+            <div class="team-line"><span class="team-name">${home}</span><span class="score">${hs}</span></div>
+            <div class="team-line"><span class="team-name">${away}</span><span class="score">${as}</span></div>
+          </div>
+          <div></div>
+        </div>`;
+    });
+    html += `</div>`;
+  });
+  container.innerHTML = html;
+}
+
+async function loadAndRender(){
+  const container = document.getElementById("results");
+  try{
+    const events = await fetchMatches(currentSport);
+    render(events);
+    setLastUpdated();
+  }catch(err){
+    container.innerHTML = `<div class="error">Greška pri učitavanju podataka: ${err.message}</div>`;
+  }
+}
+
+tabs.forEach(tab=>{
+  tab.addEventListener("click", ()=>{
+    tabs.forEach(t=>t.classList.remove("active"));
+    tab.classList.add("active");
+    currentSport = tab.dataset.sport;
+    document.getElementById("results").innerHTML = `<div class="loading">Učitavanje rezultata...</div>`;
+    loadAndRender();
+  });
+});
+
+loadAndRender();
+refreshTimer = setInterval(loadAndRender, 60000);
+</script>
+
+</body>
+</html>
